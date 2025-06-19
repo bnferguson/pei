@@ -1,0 +1,52 @@
+# pei.yaml - Example configuration for managing services with pei
+version: "1.0"
+
+services:
+  # Echo service: prints a message every 5 seconds
+  echo:
+    command: ["sh", "-c", "while true; do echo 'echo service running'; sleep 5; done"]
+    user: appuser           # User to run the service as
+    group: appuser          # Group to run the service as
+    restart: always         # Always restart if the service exits
+    max_restarts: 3         # Maximum number of restarts before giving up
+    restart_delay: 5s       # Wait 5 seconds between restarts
+
+  # Counter service: increments and prints a counter every 2 seconds
+  counter:
+    command: ["sh", "-c", "i=0; while true; do echo 'counter: $i'; i=$((i+1)); sleep 2; done"]
+    user: worker            # User to run the service as
+    group: worker           # Group to run the service as
+    restart: on-failure     # Only restart if the service exits with error
+    max_restarts: 5         # Maximum number of restarts before giving up
+    restart_delay: 2s       # Wait 2 seconds between restarts
+
+  # Healthcheck service: runs a health check every 30 seconds
+  healthcheck:
+    command: ["sh", "-c", "echo 'Health check running at $(date)'; sleep 1"]
+    user: monitor           # User to run the service as
+    group: monitor          # Group to run the service as
+    interval: 30s           # Run every 30 seconds
+    oneshot: true           # Only run once per interval, not a persistent process
+    depends_on: ["echo", "counter"] # Wait for these services to start first
+
+  # Zombie maker: creates zombie processes to test init's reaping
+  zombie_maker:
+    command: ["/usr/local/bin/zombie_maker"]
+    user: zombie            # User to run the service as
+    group: zombie           # Group to run the service as
+    environment:
+      LOG_LEVEL: debug      # Example environment variable
+    restart: always         # Always restart if it dies
+    stdout: /dev/stdout     # Log output to stdout
+    stderr: /dev/stderr     # Log errors to stderr
+    max_restarts: 10        # Maximum number of restarts before giving up
+    restart_delay: 5s       # Wait 5 seconds between restarts
+
+  # Signal handler: demonstrates signal handling and logging
+  signal_handler:
+    command: ["sh", "/example/signal-handler.sh"]
+    user: appuser           # User to run the service as
+    group: appuser          # Group to run the service as
+    restart: always         # Always restart if it dies
+    max_restarts: 3         # Maximum number of restarts before giving up
+    restart_delay: 5s       # Wait 5 seconds between restarts

@@ -3,9 +3,9 @@ package main
 import (
 	"os"
 	"os/exec"
+	"syscall"
 	"testing"
 	"time"
-	"syscall"
 )
 
 func TestMainAsPID1(t *testing.T) {
@@ -50,7 +50,9 @@ func TestMainAsPID1(t *testing.T) {
 	}
 
 	// Clean up
-	syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
+		t.Logf("Warning: failed to kill process group: %v", err)
+	}
 }
 
 func TestServiceManagement(t *testing.T) {
