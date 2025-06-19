@@ -114,12 +114,21 @@ func showServiceStatus(config *Config, serviceName string) {
 	fmt.Printf("Status: stopped\n")
 }
 
-func handleCLICommands(configPath *string, listFlag *bool, statusFlag *string, restartFlag *string, signalFlag *string) bool {
-	// Check if any CLI flags were provided
-	hasFlags := *listFlag || *statusFlag != "" || *restartFlag != "" || *signalFlag != ""
+func handleCLICommands(configPath *string, args []string) bool {
+	// If no arguments provided, try to default to listing services from daemon
+	if len(args) == 0 {
+		if err := listServicesIPC(); err == nil {
+			// Successfully connected to daemon and listed services
+			return true
+		}
+		// Daemon not running, continue to PID 1 check below
+		return false
+	}
 
-	// Handle CLI operations that communicate with daemon
-	if *listFlag {
+	command := args[0]
+
+	switch command {
+	case "list":
 		if err := listServicesIPC(); err != nil {
 			// Fallback to config-based listing if daemon is not running
 			config, configErr := loadConfig(*configPath)
@@ -129,10 +138,14 @@ func handleCLICommands(configPath *string, listFlag *bool, statusFlag *string, r
 			listServices(config)
 		}
 		return true
-	}
 
-	if *statusFlag != "" {
-		if err := showServiceStatusIPC(*statusFlag); err != nil {
+	case "status":
+		serviceName := ""
+		if len(args) > 1 {
+			serviceName = args[1]
+		}
+
+		if err := showServiceStatusIPC(serviceName); err != nil {
 			// For non-existent services, just show the daemon error
 			if strings.Contains(err.Error(), "not found") {
 				log.Fatalf("%v", err)
@@ -142,13 +155,17 @@ func handleCLICommands(configPath *string, listFlag *bool, statusFlag *string, r
 			if configErr != nil {
 				log.Fatalf("No pei daemon running - cannot show service status")
 			}
-			showServiceStatus(config, *statusFlag)
+			showServiceStatus(config, serviceName)
 		}
 		return true
-	}
 
-	if *restartFlag != "" {
-		resp, err := sendIPCRequest(IPCRequest{Command: "restart", Service: *restartFlag})
+	case "restart":
+		if len(args) < 2 {
+			log.Fatal("restart command requires a service name")
+		}
+		serviceName := args[1]
+
+		resp, err := sendIPCRequest(IPCRequest{Command: "restart", Service: serviceName})
 		if err != nil {
 			log.Fatalf("No pei daemon running - cannot restart service")
 		}
@@ -158,10 +175,14 @@ func handleCLICommands(configPath *string, listFlag *bool, statusFlag *string, r
 			log.Fatalf("Restart failed: %s", resp.Message)
 		}
 		return true
-	}
 
-	if *signalFlag != "" {
-		parts := strings.Split(*signalFlag, ":")
+	case "signal":
+		if len(args) < 2 {
+			log.Fatal("signal command requires service:signal format (e.g., echo:HUP)")
+		}
+		signalArg := args[1]
+
+		parts := strings.Split(signalArg, ":")
 		if len(parts) != 2 {
 			log.Fatal("Signal format should be service:signal (e.g., echo:HUP)")
 		}
@@ -176,16 +197,10 @@ func handleCLICommands(configPath *string, listFlag *bool, statusFlag *string, r
 			log.Fatalf("Signal failed: %s", resp.Message)
 		}
 		return true
-	}
 
-	// If no flags were provided, try to default to listing services from daemon
-	if !hasFlags {
-		if err := listServicesIPC(); err == nil {
-			// Successfully connected to daemon and listed services
-			return true
-		}
-		// Daemon not running, continue to PID 1 check below
+	default:
+		fmt.Printf("Unknown command: %s\n", command)
+		fmt.Println("Run 'pei help' for usage information")
+		return true
 	}
-
-	return hasFlags
 }

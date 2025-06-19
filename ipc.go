@@ -120,12 +120,12 @@ func handleIPCRequest(conn net.Conn) {
 				} else {
 					// Send the signal
 					signalErr := cmd.Process.Signal(sig)
-					
+
 					// Drop privileges back down
 					if dropErr := dropPrivileges(appUser, appGroup); dropErr != nil {
 						log.Printf("Failed to drop privileges after signal: %v", dropErr)
 					}
-					
+
 					if signalErr != nil {
 						response = IPCResponse{
 							Success: false,

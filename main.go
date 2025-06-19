@@ -10,6 +10,28 @@ import (
 	"time"
 )
 
+func showHelp() {
+	fmt.Println("pei - Process management for containers")
+	fmt.Println("\nUsage:")
+	fmt.Println("  pei [command] [options]")
+	fmt.Println("\nCommands:")
+	fmt.Println("  list                      List all services and their status")
+	fmt.Println("  status [service]          Show detailed status for service (or all if no service specified)")
+	fmt.Println("  restart <service>         Restart a specific service")
+	fmt.Println("  signal <service:signal>   Send signal to service")
+	fmt.Println("  help                      Show this help")
+	fmt.Println("\nGlobal Options:")
+	fmt.Println("  -c <config>               Path to configuration file (default: pei.yaml)")
+	fmt.Println("  -help                     Show this help")
+	fmt.Println("\nSignals: HUP, TERM, KILL, USR1, USR2")
+	fmt.Println("\nExamples:")
+	fmt.Println("  pei list")
+	fmt.Println("  pei status echo")
+	fmt.Println("  pei restart echo")
+	fmt.Println("  pei signal echo:HUP")
+	fmt.Println("  pei -c /etc/pei.yaml list")
+}
+
 // Global variables for daemon state
 var (
 	appUser       string
@@ -18,43 +40,31 @@ var (
 )
 
 func main() {
-	// Parse command line flags
+	// Parse global flags first
 	configPath := flag.String("c", "pei.yaml", "path to configuration file")
-	listFlag := flag.Bool("list", false, "list all services and their status")
-	statusFlag := flag.String("status", "", "show detailed status for a specific service (or all if empty)")
-	restartFlag := flag.String("restart", "", "restart a specific service")
-	signalFlag := flag.String("signal", "", "send signal to service (format: service:signal)")
 	helpFlag := flag.Bool("help", false, "show help information")
 	flag.Parse()
 
-	if *helpFlag {
-		fmt.Println("pei - Process management for containers")
-		fmt.Println("\nUsage:")
-		fmt.Println("  pei [options]                 List all services (when daemon running)")
-		fmt.Println("  pei -list                     List all services and their status")
-		fmt.Println("  pei -status [service]         Show detailed status for service")
-		fmt.Println("  pei -restart [service]        Restart a specific service")
-		fmt.Println("  pei -signal [service:signal]  Send signal to service")
-		fmt.Println("  pei -help                     Show this help")
-		fmt.Println("\nSignals: HUP, TERM, KILL, USR1, USR2")
-		fmt.Println("\nExample:")
-		fmt.Println("  pei -restart echo")
-		fmt.Println("  pei -signal echo:HUP")
+	// Get remaining arguments after flags
+	args := flag.Args()
+
+	if *helpFlag || (len(args) > 0 && args[0] == "help") {
+		showHelp()
 		return
 	}
 
 	// Handle CLI operations - returns true if any CLI command was executed
-	if hasFlags := handleCLICommands(configPath, listFlag, statusFlag, restartFlag, signalFlag); hasFlags {
+	if hasCommand := handleCLICommands(configPath, args); hasCommand {
 		return
 	}
 
 	// Check if we're running as PID 1 for daemon mode
 	if os.Getpid() != 1 {
 		fmt.Println("No pei daemon running. Available commands:")
-		fmt.Println("  --list                    List all services and their status")
-		fmt.Println("  --status [service]        Show detailed status for service")
-		fmt.Println("  --restart [service]       Restart a specific service")
-		fmt.Println("  --signal [service:signal] Send signal to service")
+		fmt.Println("  pei list                    List all services and their status")
+		fmt.Println("  pei status [service]        Show detailed status for service")
+		fmt.Println("  pei restart <service>       Restart a specific service")
+		fmt.Println("  pei signal <service:signal> Send signal to service")
 		fmt.Println("\nTo run as daemon: pei must be run as PID 1")
 		os.Exit(1)
 	}
