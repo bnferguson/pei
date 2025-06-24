@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -267,4 +268,94 @@ func serviceManager() {
 		// Start monitoring the new process
 		go monitorService(svc, cmd)
 	}
+}
+
+// forwardSignalToServices forwards a signal to all running services
+func forwardSignalToServices(signal syscall.Signal) {
+	// Elevate privileges to send signals to processes running as different users
+	if err := elevatePrivileges(); err != nil {
+		log.Printf("Failed to elevate privileges for signal forwarding: %v", err)
+		return
+	}
+	defer func() {
+		if err := dropPrivileges(appUser, appGroup); err != nil {
+			log.Printf("Failed to drop privileges after signal forwarding: %v", err)
+		}
+	}()
+
+	for name, cmd := range serviceCmds {
+		if cmd != nil && cmd.Process != nil {
+			log.Printf("Forwarding signal %s to service %s (PID %d)", signal, name, cmd.Process.Pid)
+			if err := cmd.Process.Signal(signal); err != nil {
+				log.Printf("Failed to send signal %s to service %s: %v", signal, name, err)
+			}
+		}
+	}
+}
+
+// shutdownServices implements graceful shutdown of all services
+func shutdownServices() {
+	log.Println("Starting graceful shutdown of all services...")
+	
+	// Cleanup IPC socket first
+	os.Remove(SocketPath)
+	
+	// Elevate privileges for service management
+	if err := elevatePrivileges(); err != nil {
+		log.Printf("Failed to elevate privileges for shutdown: %v", err)
+		return
+	}
+	
+	// First, send SIGTERM to all services
+	var runningServices []*exec.Cmd
+	for name, cmd := range serviceCmds {
+		if cmd != nil && cmd.Process != nil {
+			log.Printf("Sending SIGTERM to service %s (PID %d)", name, cmd.Process.Pid)
+			if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+				log.Printf("Failed to send SIGTERM to service %s: %v", name, err)
+			} else {
+				runningServices = append(runningServices, cmd)
+			}
+		}
+	}
+	
+	// Wait for services to shutdown gracefully (with timeout)
+	shutdownTimeout := 30 * time.Second
+	log.Printf("Waiting up to %v for services to shutdown gracefully...", shutdownTimeout)
+	
+	done := make(chan bool, 1)
+	go func() {
+		var wg sync.WaitGroup
+		for _, cmd := range runningServices {
+			wg.Add(1)
+			go func(c *exec.Cmd) {
+				defer wg.Done()
+				c.Wait()
+			}(cmd)
+		}
+		wg.Wait()
+		done <- true
+	}()
+	
+	select {
+	case <-done:
+		log.Println("All services shutdown gracefully")
+	case <-time.After(shutdownTimeout):
+		log.Println("Timeout reached, force killing remaining services...")
+		
+		// Force kill any remaining services
+		for name, cmd := range serviceCmds {
+			if cmd != nil && cmd.Process != nil {
+				log.Printf("Force killing service %s (PID %d)", name, cmd.Process.Pid)
+				if err := cmd.Process.Kill(); err != nil {
+					log.Printf("Failed to force kill service %s: %v", name, err)
+				}
+			}
+		}
+		
+		// Give a short time for force kills to complete
+		time.Sleep(2 * time.Second)
+	}
+	
+	log.Println("Service shutdown complete")
 }

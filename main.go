@@ -94,9 +94,12 @@ func main() {
 		appGroup = "appuser" // default
 	}
 
-	// Basic signal handling
+	// Enhanced signal handling for init process
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+	signal.Notify(sigChan, 
+		syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP,
+		syscall.SIGUSR1, syscall.SIGUSR2, syscall.SIGPIPE,
+		syscall.SIGQUIT, syscall.SIGCHLD)
 
 	// Start each service as the requested user/group
 	// We'll start them sequentially to ensure proper initialization
@@ -132,22 +135,27 @@ func main() {
 	}
 	log.Printf("Dropped privileges to %s:%s", appUser, appGroup)
 
-	// Wait for signals
-	<-sigChan
-	log.Println("Received shutdown signal, cleaning up...")
-
-	// Cleanup IPC socket
-	os.Remove(SocketPath)
-
-	// Re-elevate privileges for cleanup
-	if err := elevatePrivileges(); err != nil {
-		log.Printf("Failed to elevate privileges for cleanup: %v", err)
-	} else {
-		// TODO: Implement proper service cleanup
-		log.Println("Cleaning up services...")
-		// Drop privileges again after cleanup
-		if err := dropPrivileges(appUser, appGroup); err != nil {
-			log.Printf("Failed to drop privileges after cleanup: %v", err)
+	// Signal handling loop
+	for {
+		sig := <-sigChan
+		log.Printf("Received signal: %s", sig)
+		
+		switch sig {
+		case syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT:
+			log.Printf("Received shutdown signal %s, initiating graceful shutdown...", sig)
+			shutdownServices()
+			return
+		case syscall.SIGHUP, syscall.SIGUSR1, syscall.SIGUSR2:
+			log.Printf("Forwarding signal %s to all services", sig)
+			forwardSignalToServices(sig.(syscall.Signal))
+		case syscall.SIGCHLD:
+			// SIGCHLD is handled by the global reaper, just log it
+			log.Printf("Received SIGCHLD (handled by reaper)")
+		case syscall.SIGPIPE:
+			// Ignore SIGPIPE - common in containers
+			log.Printf("Received SIGPIPE (ignored)")
+		default:
+			log.Printf("Received unhandled signal: %s", sig)
 		}
 	}
 }
