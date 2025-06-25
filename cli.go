@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"os"
 	"strings"
 	"time"
 )
@@ -133,7 +133,8 @@ func handleCLICommands(configPath *string, args []string) bool {
 			// Fallback to config-based listing if daemon is not running
 			config, configErr := loadConfig(*configPath)
 			if configErr != nil {
-				log.Fatalf("Failed to connect to daemon and load config: %v, %v", err, configErr)
+				fmt.Fprintf(os.Stderr, "Error: Failed to connect to daemon and load config: %v\n", configErr)
+				os.Exit(1)
 			}
 			listServices(config)
 		}
@@ -148,12 +149,14 @@ func handleCLICommands(configPath *string, args []string) bool {
 		if err := showServiceStatusIPC(serviceName); err != nil {
 			// For non-existent services, just show the daemon error
 			if strings.Contains(err.Error(), "not found") {
-				log.Fatalf("%v", err)
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
 			}
 			// Fallback to config-based status if daemon is not running
 			config, configErr := loadConfig(*configPath)
 			if configErr != nil {
-				log.Fatalf("No pei daemon running - cannot show service status")
+				fmt.Fprintf(os.Stderr, "Error: No pei daemon running - cannot show service status\n")
+				os.Exit(1)
 			}
 			showServiceStatus(config, serviceName)
 		}
@@ -161,40 +164,47 @@ func handleCLICommands(configPath *string, args []string) bool {
 
 	case "restart":
 		if len(args) < 2 {
-			log.Fatal("restart command requires a service name")
+			fmt.Fprintf(os.Stderr, "Error: restart command requires a service name\n")
+			os.Exit(1)
 		}
 		serviceName := args[1]
 
 		resp, err := sendIPCRequest(IPCRequest{Command: "restart", Service: serviceName})
 		if err != nil {
-			log.Fatalf("No pei daemon running - cannot restart service")
+			fmt.Fprintf(os.Stderr, "Error: No pei daemon running - cannot restart service\n")
+			os.Exit(1)
 		}
 		if resp.Success {
 			fmt.Println(resp.Message)
 		} else {
-			log.Fatalf("Restart failed: %s", resp.Message)
+			fmt.Fprintf(os.Stderr, "Error: Restart failed: %s\n", resp.Message)
+			os.Exit(1)
 		}
 		return true
 
 	case "signal":
 		if len(args) < 2 {
-			log.Fatal("signal command requires service:signal format (e.g., echo:HUP)")
+			fmt.Fprintf(os.Stderr, "Error: signal command requires service:signal format (e.g., echo:HUP)\n")
+			os.Exit(1)
 		}
 		signalArg := args[1]
 
 		parts := strings.Split(signalArg, ":")
 		if len(parts) != 2 {
-			log.Fatal("Signal format should be service:signal (e.g., echo:HUP)")
+			fmt.Fprintf(os.Stderr, "Error: Signal format should be service:signal (e.g., echo:HUP)\n")
+			os.Exit(1)
 		}
 
 		resp, err := sendIPCRequest(IPCRequest{Command: "signal", Service: parts[0], Signal: parts[1]})
 		if err != nil {
-			log.Fatalf("No pei daemon running - cannot send signal to service")
+			fmt.Fprintf(os.Stderr, "Error: No pei daemon running - cannot send signal to service\n")
+			os.Exit(1)
 		}
 		if resp.Success {
 			fmt.Println(resp.Message)
 		} else {
-			log.Fatalf("Signal failed: %s", resp.Message)
+			fmt.Fprintf(os.Stderr, "Error: Signal failed: %s\n", resp.Message)
+			os.Exit(1)
 		}
 		return true
 

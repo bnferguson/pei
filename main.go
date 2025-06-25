@@ -1,13 +1,11 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
-	"os/signal"
-	"syscall"
-	"time"
 )
 
 func showHelp() {
@@ -32,14 +30,10 @@ func showHelp() {
 	fmt.Println("  pei -c /etc/pei.yaml list")
 }
 
-// Global variables for daemon state
-var (
-	appUser       string
-	appGroup      string
-	currentConfig *Config
-)
-
 func main() {
+	// Initialize logging first
+	initLogger()
+
 	// Parse global flags first
 	configPath := flag.String("c", "pei.yaml", "path to configuration file")
 	helpFlag := flag.Bool("help", false, "show help information")
@@ -71,22 +65,22 @@ func main() {
 
 	// Check if we have root privileges (effective UID)
 	if os.Geteuid() != 0 {
-		log.Fatal("pei must be run with root privileges")
+		slog.Error("pei must be run with root privileges")
+		os.Exit(1)
 	}
 
 	// Load configuration for daemon
 	config, err := loadConfig(*configPath)
 	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
+		slog.Error("Failed to load configuration",
+			"config_path", *configPath,
+			"error", err)
+		os.Exit(1)
 	}
-	currentConfig = config
-
-	// Start IPC server for CLI communication
-	startIPCServer()
 
 	// Set up app user/group
-	appUser = os.Getenv("PEI_APP_USER")
-	appGroup = os.Getenv("PEI_APP_GROUP")
+	appUser := os.Getenv("PEI_APP_USER")
+	appGroup := os.Getenv("PEI_APP_GROUP")
 	if appUser == "" {
 		appUser = "appuser" // default
 	}
@@ -94,68 +88,11 @@ func main() {
 		appGroup = "appuser" // default
 	}
 
-	// Enhanced signal handling for init process
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, 
-		syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP,
-		syscall.SIGUSR1, syscall.SIGUSR2, syscall.SIGPIPE,
-		syscall.SIGQUIT, syscall.SIGCHLD)
-
-	// Start each service as the requested user/group
-	// We'll start them sequentially to ensure proper initialization
-	for name, svc := range currentConfig.Services {
-		log.Printf("Starting service %s...", name)
-		if err := startService(svc); err != nil {
-			continue
-		}
-	}
-
-	// Start the service manager goroutine that handles restarts
-	go serviceManager()
-
-	// Start a global reaper goroutine to reap all orphaned/zombie child processes
-	go func() {
-		for {
-			var ws syscall.WaitStatus
-			var ru syscall.Rusage
-			pid, err := syscall.Wait4(-1, &ws, syscall.WNOHANG, &ru)
-			if pid > 0 {
-				log.Printf("[reaper] Reaped orphaned child process PID %d", pid)
-			}
-			if err != nil && err != syscall.ECHILD {
-				log.Printf("[reaper] Error in global reaper: %v", err)
-			}
-			time.Sleep(1 * time.Second)
-		}
-	}()
-
-	// Now that all services are started, drop privileges
-	if err := dropPrivileges(appUser, appGroup); err != nil {
-		log.Fatalf("Failed to drop privileges: %v", err)
-	}
-	log.Printf("Dropped privileges to %s:%s", appUser, appGroup)
-
-	// Signal handling loop
-	for {
-		sig := <-sigChan
-		log.Printf("Received signal: %s", sig)
-		
-		switch sig {
-		case syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT:
-			log.Printf("Received shutdown signal %s, initiating graceful shutdown...", sig)
-			shutdownServices()
-			return
-		case syscall.SIGHUP, syscall.SIGUSR1, syscall.SIGUSR2:
-			log.Printf("Forwarding signal %s to all services", sig)
-			forwardSignalToServices(sig.(syscall.Signal))
-		case syscall.SIGCHLD:
-			// SIGCHLD is handled by the global reaper, just log it
-			log.Printf("Received SIGCHLD (handled by reaper)")
-		case syscall.SIGPIPE:
-			// Ignore SIGPIPE - common in containers
-			log.Printf("Received SIGPIPE (ignored)")
-		default:
-			log.Printf("Received unhandled signal: %s", sig)
-		}
+	// Create and start the daemon
+	daemon := NewDaemon(config, appUser, appGroup)
+	ctx := context.Background()
+	if err := daemon.Start(ctx); err != nil {
+		slog.Error("Daemon failed to start", "error", err)
+		os.Exit(1)
 	}
 }

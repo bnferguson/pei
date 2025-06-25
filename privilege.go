@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/user"
 	"strconv"
@@ -42,7 +43,13 @@ func dropPrivileges(appUser, appGroup string) error {
 	}
 	if err := syscall.Setregid(rootGid, gid); err != nil {
 		// Try to restore root privileges if setting group fails
-		syscall.Setreuid(uid, rootUid)
+		// Restore both UID and GID to prevent partial privilege state
+		// Attempting to restore UID to rootUid after Setregid failure.
+		fmt.Printf("Setregid failed: %v. Attempting to restore UID to %d.\n", err, rootUid)
+		if restoreUidErr := syscall.Setreuid(uid, rootUid); restoreUidErr != nil {
+			return fmt.Errorf("failed to set group and restore UID: %v, %v", err, restoreUidErr)
+		}
+		// Note: GID should already be at rootGid since Setregid failed
 		return err
 	}
 	return nil
@@ -53,13 +60,21 @@ func elevatePrivileges() error {
 	rootUid := os.Getuid()
 	rootGid := os.Getgid()
 
+	// Store current effective UID/GID for potential restoration
+	prevEffectiveUid := os.Geteuid()
+	prevEffectiveGid := os.Getegid()
+
 	// Switch effective UID/GID back to root
-	if err := syscall.Setreuid(os.Geteuid(), rootUid); err != nil {
+	if err := syscall.Setreuid(prevEffectiveUid, rootUid); err != nil {
 		return err
 	}
-	if err := syscall.Setregid(os.Getegid(), rootGid); err != nil {
+	if err := syscall.Setregid(prevEffectiveGid, rootGid); err != nil {
 		// Try to restore previous state if setting group fails
-		syscall.Setreuid(rootUid, os.Geteuid())
+		// Restore both UID and GID to prevent partial privilege state
+		if restoreUidErr := syscall.Setreuid(rootUid, prevEffectiveUid); restoreUidErr != nil {
+			return fmt.Errorf("failed to set group and restore UID: %v, %v", err, restoreUidErr)
+		}
+		// Note: GID should already be at prevEffectiveGid since Setregid failed
 		return err
 	}
 	return nil

@@ -32,6 +32,7 @@ type Service struct {
 	Stderr       string            `yaml:"stderr"`
 	Interval     time.Duration     `yaml:"interval"`
 	Oneshot      bool              `yaml:"oneshot"`
+	JSONLogs     bool              `yaml:"json_logs"`
 }
 
 // Config represents the pei configuration
