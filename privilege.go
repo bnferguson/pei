@@ -44,6 +44,8 @@ func dropPrivileges(appUser, appGroup string) error {
 	if err := syscall.Setregid(rootGid, gid); err != nil {
 		// Try to restore root privileges if setting group fails
 		// Restore both UID and GID to prevent partial privilege state
+		// Attempting to restore UID to rootUid after Setregid failure.
+		fmt.Printf("Setregid failed: %v. Attempting to restore UID to %d.\n", err, rootUid)
 		if restoreUidErr := syscall.Setreuid(uid, rootUid); restoreUidErr != nil {
 			return fmt.Errorf("failed to set group and restore UID: %v, %v", err, restoreUidErr)
 		}
