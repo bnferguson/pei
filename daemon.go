@@ -483,24 +483,62 @@ func (d *Daemon) serviceManager(ctx context.Context) {
 	}
 }
 
-// globalReaper reaps orphaned/zombie child processes
+// globalReaper reaps orphaned/zombie child processes efficiently
 func (d *Daemon) globalReaper(ctx context.Context) {
 	reaperLogger := getLogger("reaper")
+
+	// Create a channel to receive SIGCHLD notifications
+	sigchldChan := make(chan os.Signal, 10) // Buffer for burst of child exits
+	signal.Notify(sigchldChan, syscall.SIGCHLD)
+	defer signal.Stop(sigchldChan)
+
+	// Also use a ticker as backup in case we miss signals or for periodic cleanup
+	ticker := time.NewTicker(30 * time.Second) // Much less frequent than before
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
+			// Final reap before shutdown
+			d.reapChildren(reaperLogger)
 			return
-		default:
-			var ws syscall.WaitStatus
-			var ru syscall.Rusage
-			pid, err := syscall.Wait4(-1, &ws, syscall.WNOHANG, &ru)
-			if pid > 0 {
-				reaperLogger.Info("Reaped orphaned child process", "pid", pid)
-			}
-			if err != nil && err != syscall.ECHILD {
-				reaperLogger.Error("Error in global reaper", "error", err)
-			}
-			time.Sleep(1 * time.Second)
+		case <-sigchldChan:
+			// Efficient: only reap when we know children have exited
+			d.reapChildren(reaperLogger)
+		case <-ticker.C:
+			// Periodic fallback reap in case we missed any signals
+			d.reapChildren(reaperLogger)
+		}
+	}
+}
+
+// reapChildren performs the actual child reaping logic
+func (d *Daemon) reapChildren(logger *slog.Logger) {
+	for {
+		var ws syscall.WaitStatus
+		var ru syscall.Rusage
+		pid, err := syscall.Wait4(-1, &ws, syscall.WNOHANG, &ru)
+
+		if pid == 0 {
+			// No more children to reap
+			break
+		}
+
+		if pid > 0 {
+			logger.Info("Reaped child process",
+				"pid", pid,
+				"exit_status", ws.ExitStatus(),
+				"signaled", ws.Signaled())
+		}
+
+		if err == syscall.ECHILD {
+			// No children to wait for
+			break
+		}
+
+		if err != nil {
+			logger.Error("Error in child reaper", "error", err)
+			break
 		}
 	}
 }
