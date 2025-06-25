@@ -493,7 +493,7 @@ func (d *Daemon) globalReaper(ctx context.Context) {
 	defer signal.Stop(sigchldChan)
 
 	// Also use a ticker as backup in case we miss signals or for periodic cleanup
-	ticker := time.NewTicker(30 * time.Second) // Much less frequent than before
+	ticker := time.NewTicker(5 * time.Second) // Reduced interval for more responsive cleanup
 	defer ticker.Stop()
 
 	for {
