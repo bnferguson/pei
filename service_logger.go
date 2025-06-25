@@ -77,8 +77,8 @@ func (s *ServiceOutputCapture) logServiceOutput(line, stream string) {
 		return
 	}
 
-	// Check if this looks like structured JSON logging
-	if isStructuredJSON(line) {
+	// Check if service is configured for JSON logs
+	if s.service.JSONLogs {
 		s.logStructuredServiceOutput(line, stream)
 	} else {
 		// Log as plain text with service context
@@ -88,34 +88,6 @@ func (s *ServiceOutputCapture) logServiceOutput(line, stream string) {
 			"user", s.service.User,
 			"output", line)
 	}
-}
-
-// isStructuredJSON checks if a line appears to be structured JSON logging
-func isStructuredJSON(line string) bool {
-	// Must start and end with braces
-	if !strings.HasPrefix(line, "{") || !strings.HasSuffix(line, "}") {
-		return false
-	}
-
-	// Try to parse as JSON - if it fails, treat as plain text
-	var jsonObj map[string]interface{}
-	if err := json.Unmarshal([]byte(line), &jsonObj); err != nil {
-		return false
-	}
-
-	// Check for common structured logging fields to confirm this is a log entry
-	// Look for typical fields like "time", "level", "msg", "message", "timestamp", etc.
-	commonLogFields := []string{"time", "timestamp", "level", "severity", "msg", "message", "@timestamp", "ts"}
-
-	fieldCount := 0
-	for _, field := range commonLogFields {
-		if _, exists := jsonObj[field]; exists {
-			fieldCount++
-		}
-	}
-
-	// If we find at least 2 common log fields, treat it as structured logging
-	return fieldCount >= 2
 }
 
 // logStructuredServiceOutput handles service output that is already structured JSON

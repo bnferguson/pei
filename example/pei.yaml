@@ -59,3 +59,4 @@ services:
     restart: always         # Always restart if it dies
     max_restarts: 3         # Maximum number of restarts before giving up
     restart_delay: 5s       # Wait 5 seconds between restarts
+    json_logs: true         # This service outputs structured JSON logs
