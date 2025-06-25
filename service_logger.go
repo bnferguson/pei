@@ -9,32 +9,6 @@ import (
 	"strings"
 )
 
-// ServiceLogWriter captures service output and routes it through slog with service context
-type ServiceLogWriter struct {
-	serviceName string
-	stream      string // "stdout" or "stderr"
-	logger      *slog.Logger
-}
-
-// NewServiceLogWriter creates a new log writer for a service's output stream
-func NewServiceLogWriter(serviceName, stream string) *ServiceLogWriter {
-	return &ServiceLogWriter{
-		serviceName: serviceName,
-		stream:      stream,
-		logger:      slog.With("component", "service-output"),
-	}
-}
-
-// Write implements io.Writer interface to capture service output
-func (w *ServiceLogWriter) Write(p []byte) (n int, err error) {
-	// Log the output with service context
-	w.logger.Info("Service output",
-		"service", w.serviceName,
-		"stream", w.stream,
-		"output", string(p))
-
-	return len(p), nil
-}
 
 // ServiceOutputCapture manages capturing and logging service output
 type ServiceOutputCapture struct {
