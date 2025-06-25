@@ -25,12 +25,14 @@ RUN adduser -D -u 1000 appuser \
 COPY --from=builder /app/pei /pei
 COPY --from=zombie-builder /app/zombie_maker /usr/local/bin/zombie_maker
 COPY example/signal-handler.sh /example/signal-handler.sh
+COPY example/json-logger.sh /example/json-logger.sh
 
 # Make sure the binary is owned by root and has setuid
 RUN chown root:root /pei && \
     chmod u+s /pei && \
     chown zombie:zombie /usr/local/bin/zombie_maker && \
-    chmod +x /example/signal-handler.sh
+    chmod +x /example/signal-handler.sh && \
+    chmod +x /example/json-logger.sh
 
 # Switch to non-root user
 USER appuser

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"log/slog"
 	"net"
 	"os"
 	"syscall"
@@ -28,7 +29,7 @@ const (
 	SocketPath = "/tmp/pei.sock"
 )
 
-func handleIPCRequest(conn net.Conn) {
+func handleIPCRequest(conn net.Conn, daemon *Daemon) {
 	defer conn.Close()
 
 	decoder := json.NewDecoder(conn)
@@ -37,7 +38,9 @@ func handleIPCRequest(conn net.Conn) {
 	var req IPCRequest
 	if err := decoder.Decode(&req); err != nil {
 		response := IPCResponse{Success: false, Message: "Invalid request format"}
-		encoder.Encode(response)
+		if err := encoder.Encode(response); err != nil {
+			slog.Error("Failed to encode IPC response", "error", err)
+		}
 		return
 	}
 
@@ -47,16 +50,16 @@ func handleIPCRequest(conn net.Conn) {
 	case "list":
 		response = IPCResponse{
 			Success:  true,
-			Services: serviceStatus,
+			Services: daemon.getAllServiceStatus(),
 		}
 	case "status":
 		if req.Service == "" {
 			response = IPCResponse{
 				Success:  true,
-				Services: serviceStatus,
+				Services: daemon.getAllServiceStatus(),
 			}
 		} else {
-			if status, exists := serviceStatus[req.Service]; exists {
+			if status, exists := daemon.getServiceStatus(req.Service); exists {
 				response = IPCResponse{
 					Success: true,
 					Service: status,
@@ -71,12 +74,19 @@ func handleIPCRequest(conn net.Conn) {
 	case "restart":
 		if req.Service == "" {
 			response = IPCResponse{Success: false, Message: "Service name required"}
-		} else if svc, exists := currentConfig.Services[req.Service]; exists {
+		} else if svc, exists := daemon.config.Services[req.Service]; exists {
 			// Send restart request
-			restartChan <- svc
-			response = IPCResponse{
-				Success: true,
-				Message: fmt.Sprintf("Restart requested for service '%s'", req.Service),
+			select {
+			case daemon.restartChan <- svc:
+				response = IPCResponse{
+					Success: true,
+					Message: fmt.Sprintf("Restart requested for service '%s'", req.Service),
+				}
+			default:
+				response = IPCResponse{
+					Success: false,
+					Message: "Restart channel is full, try again later",
+				}
 			}
 		} else {
 			response = IPCResponse{
@@ -87,7 +97,7 @@ func handleIPCRequest(conn net.Conn) {
 	case "signal":
 		if req.Service == "" || req.Signal == "" {
 			response = IPCResponse{Success: false, Message: "Service name and signal required"}
-		} else if cmd, exists := serviceCmds[req.Service]; exists && cmd.Process != nil {
+		} else if cmd, exists := daemon.getServiceCmd(req.Service); exists && cmd.Process != nil {
 			// Parse signal
 			var sig syscall.Signal
 			var validSignal bool = true
@@ -122,7 +132,7 @@ func handleIPCRequest(conn net.Conn) {
 					signalErr := cmd.Process.Signal(sig)
 
 					// Drop privileges back down
-					if dropErr := dropPrivileges(appUser, appGroup); dropErr != nil {
+					if dropErr := dropPrivileges(daemon.appUser, daemon.appGroup); dropErr != nil {
 						log.Printf("Failed to drop privileges after signal: %v", dropErr)
 					}
 
@@ -152,10 +162,12 @@ func handleIPCRequest(conn net.Conn) {
 		}
 	}
 
-	encoder.Encode(response)
+	if err := encoder.Encode(response); err != nil {
+		slog.Error("Failed to encode IPC response", "error", err)
+	}
 }
 
-func startIPCServer() {
+func startIPCServer(daemon *Daemon) {
 	// Remove existing socket if it exists
 	os.Remove(SocketPath)
 
@@ -175,7 +187,7 @@ func startIPCServer() {
 				log.Printf("IPC accept error: %v", err)
 				continue
 			}
-			go handleIPCRequest(conn)
+			go handleIPCRequest(conn, daemon)
 		}
 	}()
 }

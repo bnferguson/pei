@@ -50,3 +50,12 @@ services:
     restart: always         # Always restart if it dies
     max_restarts: 3         # Maximum number of restarts before giving up
     restart_delay: 5s       # Wait 5 seconds between restarts
+
+  # JSON logger: demonstrates structured log handling from services
+  json_logger:
+    command: ["sh", "/example/json-logger.sh"]
+    user: appuser           # User to run the service as
+    group: appuser          # Group to run the service as
+    restart: always         # Always restart if it dies
+    max_restarts: 3         # Maximum number of restarts before giving up
+    restart_delay: 5s       # Wait 5 seconds between restarts

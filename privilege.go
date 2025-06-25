@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"os/user"
 	"strconv"
@@ -42,7 +43,9 @@ func dropPrivileges(appUser, appGroup string) error {
 	}
 	if err := syscall.Setregid(rootGid, gid); err != nil {
 		// Try to restore root privileges if setting group fails
-		syscall.Setreuid(uid, rootUid)
+		if restoreErr := syscall.Setreuid(uid, rootUid); restoreErr != nil {
+			return fmt.Errorf("failed to set group and restore privileges: %v, %v", err, restoreErr)
+		}
 		return err
 	}
 	return nil
@@ -59,7 +62,9 @@ func elevatePrivileges() error {
 	}
 	if err := syscall.Setregid(os.Getegid(), rootGid); err != nil {
 		// Try to restore previous state if setting group fails
-		syscall.Setreuid(rootUid, os.Geteuid())
+		if restoreErr := syscall.Setreuid(rootUid, os.Geteuid()); restoreErr != nil {
+			return fmt.Errorf("failed to set group and restore privileges: %v, %v", err, restoreErr)
+		}
 		return err
 	}
 	return nil
