@@ -95,7 +95,14 @@ func (s *ServiceOutputCapture) logStructuredServiceOutput(jsonLine, stream strin
 	// Parse the service's JSON log
 	var serviceLog map[string]interface{}
 	if err := json.Unmarshal([]byte(jsonLine), &serviceLog); err != nil {
-		// If parsing fails, fall back to plain text logging
+		// Log the fallback for debugging purposes
+		s.logger.Debug("Non-JSON output from JSON-configured service",
+			"stream", stream,
+			"pid", s.pid,
+			"user", s.service.User,
+			"parse_error", err.Error())
+
+		// Fall back to plain text logging
 		s.logger.Info("Service output",
 			"stream", stream,
 			"pid", s.pid,
