@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"log/slog"
 	"net"
 	"os"
@@ -133,7 +132,7 @@ func handleIPCRequest(conn net.Conn, daemon *Daemon) {
 
 					// Drop privileges back down
 					if dropErr := dropPrivileges(daemon.appUser, daemon.appGroup); dropErr != nil {
-						log.Printf("Failed to drop privileges after signal: %v", dropErr)
+						slog.Error("Failed to drop privileges after signal", "error", dropErr)
 					}
 
 					if signalErr != nil {
@@ -173,18 +172,18 @@ func startIPCServer(daemon *Daemon) {
 
 	listener, err := net.Listen("unix", SocketPath)
 	if err != nil {
-		log.Printf("Failed to create IPC socket: %v", err)
+		slog.Error("Failed to create IPC socket", "error", err)
 		return
 	}
 
-	log.Printf("IPC server listening on %s", SocketPath)
+	slog.Info("IPC server listening", "socket_path", SocketPath)
 
 	go func() {
 		defer listener.Close()
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
-				log.Printf("IPC accept error: %v", err)
+				slog.Error("IPC accept error", "error", err)
 				continue
 			}
 			go handleIPCRequest(conn, daemon)
