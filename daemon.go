@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -187,11 +188,32 @@ func (d *Daemon) setServiceOutput(name string, output *ServiceOutputCapture) {
 	d.serviceOutputs[name] = output
 }
 
-// deleteServiceOutput safely deletes service output capture
-func (d *Daemon) deleteServiceOutput(name string) {
+// startServiceOutputCapture sets up output capture for a service
+func (d *Daemon) startServiceOutputCapture(service Service, stdoutPipe, stderrPipe io.ReadCloser, pid int) *ServiceOutputCapture {
+	capture := NewServiceOutputCapture(service, stdoutPipe, stderrPipe, pid)
+	d.setServiceOutput(service.Name, capture)
+	capture.Start()
+	return capture
+}
+
+// stopServiceOutputCapture stops output capture for a service
+func (d *Daemon) stopServiceOutputCapture(serviceName string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	delete(d.serviceOutputs, name)
+	if capture, exists := d.serviceOutputs[serviceName]; exists {
+		capture.Stop()
+		delete(d.serviceOutputs, serviceName)
+	}
+}
+
+// stopAllServiceOutputCaptures stops all service output captures
+func (d *Daemon) stopAllServiceOutputCaptures() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for serviceName, capture := range d.serviceOutputs {
+		capture.Stop()
+		delete(d.serviceOutputs, serviceName)
+	}
 }
 
 // startService starts a single service with proper privilege management
@@ -255,8 +277,7 @@ func (d *Daemon) startService(svc Service) error {
 	d.setServiceCmd(svc.Name, cmd)
 
 	// Start capturing service output
-	output := startServiceOutputCapture(svc, stdoutPipe, stderrPipe, cmd.Process.Pid)
-	d.setServiceOutput(svc.Name, output)
+	d.startServiceOutputCapture(svc, stdoutPipe, stderrPipe, cmd.Process.Pid)
 
 	// Initialize service status
 	d.setServiceStatus(svc.Name, &ServiceStatus{
@@ -279,8 +300,7 @@ func (d *Daemon) monitorService(svc Service, cmd *exec.Cmd) {
 	err := cmd.Wait()
 
 	// Stop capturing output for this service
-	stopServiceOutputCapture(svc.Name)
-	d.deleteServiceOutput(svc.Name)
+	d.stopServiceOutputCapture(svc.Name)
 
 	// Update service status to not running
 	if status, exists := d.getServiceStatus(svc.Name); exists {
@@ -434,8 +454,7 @@ func (d *Daemon) serviceManager(ctx context.Context) {
 			d.setServiceCmd(svc.Name, cmd)
 
 			// Start capturing service output for restarted service
-			output := startServiceOutputCapture(svc, stdoutPipe, stderrPipe, cmd.Process.Pid)
-			d.setServiceOutput(svc.Name, output)
+			d.startServiceOutputCapture(svc, stdoutPipe, stderrPipe, cmd.Process.Pid)
 
 			// Update service status
 			if status, exists := d.getServiceStatus(svc.Name); exists {
@@ -526,7 +545,7 @@ func (d *Daemon) shutdownServices() {
 	os.Remove(SocketPath)
 
 	// Stop all service output captures
-	stopAllServiceOutputCaptures()
+	d.stopAllServiceOutputCaptures()
 
 	// Elevate privileges for service management
 	if err := elevatePrivileges(); err != nil {

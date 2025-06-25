@@ -9,7 +9,6 @@ import (
 	"strings"
 )
 
-
 // ServiceOutputCapture manages capturing and logging service output
 type ServiceOutputCapture struct {
 	service    Service
@@ -209,32 +208,5 @@ func parseLogLevel(levelStr string) slog.Level {
 		return slog.LevelError
 	default:
 		return slog.LevelInfo
-	}
-}
-
-// Global map to track service output captures
-var serviceOutputCaptures = make(map[string]*ServiceOutputCapture)
-
-// startServiceOutputCapture sets up output capture for a service
-func startServiceOutputCapture(service Service, stdoutPipe, stderrPipe io.ReadCloser, pid int) *ServiceOutputCapture {
-	capture := NewServiceOutputCapture(service, stdoutPipe, stderrPipe, pid)
-	serviceOutputCaptures[service.Name] = capture
-	capture.Start()
-	return capture
-}
-
-// stopServiceOutputCapture stops output capture for a service
-func stopServiceOutputCapture(serviceName string) {
-	if capture, exists := serviceOutputCaptures[serviceName]; exists {
-		capture.Stop()
-		delete(serviceOutputCaptures, serviceName)
-	}
-}
-
-// stopAllServiceOutputCaptures stops all service output captures
-func stopAllServiceOutputCaptures() {
-	for serviceName, capture := range serviceOutputCaptures {
-		capture.Stop()
-		delete(serviceOutputCaptures, serviceName)
 	}
 }
